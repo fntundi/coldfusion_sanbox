@@ -1,0 +1,89 @@
+version: "3.3"
+
+services:
+  db:
+    image: postgres
+    volumes:
+      - ./data/db:/var/lib/postgresql/data
+    container_name: db
+    environment:
+      - POSTGRES_NAME=postgres
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+  cache:
+    image: redis:6.2-alpine
+    restart: always
+    ports:
+      - '6379:6379'
+    container_name: cache
+    command: redis-server --save 20 1 --loglevel warning
+    volumes:
+      - ./cache:/data
+  restapi:
+    build:
+      context: ./django
+      dockerfile: Dockerfile
+    command: python manage.py runserver 0.0.0.0:8000
+    volumes:
+      - ./django:/restapi
+    ports:
+      - "8000:8000"
+    container_name: api
+    environment:
+      - POSTGRES_NAME=postgres
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - REDIS_PORT=6379
+    depends_on:
+      - db
+      - cache
+  vueui:
+    build:
+      context: ./vueui
+      dockerfile: Dockerfile
+    command: npm run serve
+    volumes:
+      - ./vueui:/usr/src/app/vueui
+      - /usr/src/app/vueui/node_modules
+    ports:
+      - "8080:8080"
+    container_name: web
+    environment:
+      - VUE_APP_API_URL=http://localhost:8000
+    depends_on:
+      - restapi
+    
+    coldfusion_api: 
+        container_name: clscfapi
+        build:
+          context: ./cf-api
+          dockerfile: Dockerfile
+        ports:
+          - target: 8500
+            published: 9001
+            protocol: tcp
+            mode: host
+        env_file:
+          - coldfusion.env
+        volumes:
+          - ./cf-api/docs:/app
+        depends_on:
+          - vueui
+          - restapi
+
+    coldfusion_security:
+        container_name: clscfsecurity
+        build:
+          context: ./cf-security
+          dockerfile: Dockerfile
+        ports:
+          - target: 8500
+            published: 8500
+            protocol: tcp
+            mode: host
+        env_file:
+          - coldfusion.env 
+        volumes:
+          - ./cfsecurity/docs:/app
+        depends_on:
+          - coldfusion_api
